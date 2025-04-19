@@ -1278,7 +1278,7 @@ SQLRETURN __SQLAllocHandle( SQLSMALLINT handle_type,
       case SQL_HANDLE_STMT:
         {
             for (int i = 0; i < pm -> size; i++) {
-                stmt_part(handle_type, pm -> conns[i], pm -> stmts[i], requested_version);
+                stmt_part(handle_type, pm -> conns[i], (SQLHANDLE *)pm -> stmts[i], requested_version);
             }
             return stmt_part(handle_type, input_handle, output_handle, requested_version);
         }
