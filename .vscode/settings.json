@@ -1,5 +1,6 @@
 {
     "files.associations": {
-        "drivermanager.h": "c"
+        "drivermanager.h": "c",
+        "string.h": "c"
     }
 }

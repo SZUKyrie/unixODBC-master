@@ -4721,15 +4721,8 @@ SQLRETURN SQLConnect( SQLHDBC connection_handle,
     SQLCHAR *authentication,
     SQLSMALLINT name_length3 ) 
 {
-    for (int i = 0; i < pm -> size; i++) {
-        if (i == 0) {
-            __SQLConnect(pm -> conns[i], server_name, name_length1, user_name, name_length2, authentication, name_length3);
-        }
-        else {
-            __SQLConnect(pm -> conns[i], (SQLCHAR*)"YASTEST", SQL_NTS, (SQLCHAR*)"sys", SQL_NTS, (SQLCHAR*)"KyrieHe2005!", SQL_NTS);
-        }
-    }
-    return __SQLConnect(connection_handle, server_name, name_length1, user_name, name_length2, authentication, name_length3);
+    __SQLConnect(pm -> conns[1], (SQLCHAR*)"YASTEST", SQL_NTS, (SQLCHAR*)"sys", SQL_NTS, (SQLCHAR*)"KyrieHe2005!", SQL_NTS);
+    return __SQLConnect(pm -> conns[0], server_name, name_length1, user_name, name_length2, authentication, name_length3);
 
 }
 

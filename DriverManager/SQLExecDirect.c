@@ -533,12 +533,7 @@ SQLRETURN SQLExecDirect( SQLHSTMT statement_handle,
         SQLINTEGER text_length )
 {
     for (int i = 0 ; i < pm -> size; i++) {
-        if (i == 0) {
-            __SQLExecDirect(pm -> stmts[i], statement_text, text_length);
-        }
-        else {
-            __SQLExecDirect(pm -> stmts[i], statement_text, text_length);
-        }
+        __SQLExecDirect(pm -> stmts[i], statement_text, text_length);
     }
     return __SQLExecDirect(statement_handle, statement_text, text_length);
 }

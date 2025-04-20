@@ -268,7 +268,176 @@ extern int pool_wait_timeout;
  * fowl of any other instances in any other modules.
  */
 
-// abstact func from __SQLAllocHandle
+// abstact funcs from __SQLAllocHandle
+SQLRETURN conn_part(SQLSMALLINT handle_type,
+    SQLHANDLE input_handle,
+    SQLHANDLE *output_handle,
+    SQLINTEGER requested_version)
+{
+    DMHENV environment = (DMHENV) input_handle;
+    DMHDBC connection;
+
+    if ( !__validate_env( environment ))
+    {
+        dm_log_write( __FILE__, 
+                __LINE__, 
+                LOG_INFO, 
+                LOG_INFO, 
+                "Error: SQL_INVALID_HANDLE" );
+
+        return SQL_INVALID_HANDLE;
+    }
+
+    if ( output_handle )
+        *output_handle = SQL_NULL_HDBC;
+
+    thread_protect( SQL_HANDLE_ENV, environment );
+
+    function_entry(( void * ) input_handle );
+
+    if ( log_info.log_flag )
+    { 
+        /*
+         * log that we are here
+         */
+
+        sprintf( environment -> msg, 
+                "\n\t\tEntry:\n\t\t\tHandle Type = %d\n\t\t\tInput Handle = %p",
+                handle_type,
+                (void*)input_handle );
+
+        dm_log_write( __FILE__, 
+                __LINE__, 
+                LOG_INFO, 
+                LOG_INFO, 
+                environment -> msg );
+    }
+
+    if ( !output_handle )
+    {
+        dm_log_write( __FILE__, 
+                __LINE__, 
+                LOG_INFO, 
+                LOG_INFO, 
+                "Error: HY009" );
+
+        __post_internal_error( &environment -> error,
+                ERROR_HY009, NULL, 
+                SQL_OV_ODBC3 );
+
+        return function_return_nodrv( SQL_HANDLE_ENV, environment, SQL_ERROR );
+    }
+
+    /*
+     * check that a version has been requested
+     */
+
+    if ( environment -> requested_version == 0 )
+    {
+        dm_log_write( __FILE__, 
+                __LINE__, 
+                LOG_INFO, 
+                LOG_INFO, 
+                "Error: HY010" );
+
+        __post_internal_error( &environment -> error,
+                ERROR_HY010, NULL,
+                SQL_OV_ODBC3 );
+
+        *output_handle = SQL_NULL_HDBC;
+
+        return function_return_nodrv( SQL_HANDLE_ENV, environment, SQL_ERROR );
+    }
+
+    connection = __alloc_dbc();
+    if ( !connection )
+    {
+        dm_log_write( __FILE__, 
+                __LINE__, 
+                LOG_INFO, 
+                LOG_INFO, 
+                "Error: HY013" );
+
+        __post_internal_error( &environment -> error,
+            ERROR_HY013, NULL,
+            environment -> requested_version );
+
+        *output_handle = SQL_NULL_HDBC;
+
+        return function_return_nodrv( SQL_HANDLE_ENV, environment, SQL_ERROR );
+    }
+
+    /*
+     * sort out the states
+     */
+
+    connection -> state = STATE_C2;
+    if ( environment -> state == STATE_E1 )
+    {
+        environment -> state = STATE_E2;
+    }
+    environment -> connection_count ++;
+    connection -> environment = environment;
+
+    connection -> cursors = SQL_CUR_DEFAULT;
+    connection -> login_timeout = SQL_LOGIN_TIMEOUT_DEFAULT;
+    connection -> login_timeout_set = 0;
+    connection -> auto_commit = SQL_AUTOCOMMIT_ON;
+    connection -> auto_commit_set = 0;
+    connection -> async_enable = 0;
+    connection -> async_enable_set = 0;
+    connection -> auto_ipd = 0;
+    connection -> auto_ipd_set = 0;
+    connection -> connection_timeout = 0;
+    connection -> connection_timeout_set = 0;
+    connection -> metadata_id = 0;
+    connection -> metadata_id_set = 0;
+    connection -> packet_size = 0;
+    connection -> packet_size_set = 0;
+    connection -> quite_mode = 0;
+    connection -> quite_mode_set = 0;
+    connection -> txn_isolation = 0;
+    connection -> txn_isolation_set = 0;
+    strcpy( connection -> cli_year, "1995" );
+
+    connection -> env_attribute.count = 0;
+    connection -> env_attribute.list = NULL;
+    connection -> dbc_attribute.count = 0;
+    connection -> dbc_attribute.list = NULL;
+    connection -> stmt_attribute.count = 0;
+    connection -> stmt_attribute.list = NULL;
+    connection -> save_attr = NULL;
+
+#ifdef HAVE_ICONV
+    connection -> iconv_cd_uc_to_ascii = (iconv_t)-1;
+    connection -> iconv_cd_ascii_to_uc = (iconv_t)-1;
+    strcpy( connection -> unicode_string, DEFAULT_ICONV_ENCODING );
+#endif
+
+    *output_handle = (SQLHANDLE) connection;
+
+    if ( log_info.log_flag )
+    {
+        sprintf( environment -> msg, 
+                "\n\t\tExit:[SQL_SUCCESS]\n\t\t\tOutput Handle = %p",
+                    connection );
+
+        dm_log_write( __FILE__, 
+                __LINE__, 
+                LOG_INFO, 
+                LOG_INFO, 
+                environment -> msg );
+    }
+#if defined ( COLLECT_STATS ) && defined( HAVE_SYS_SEM_H )
+    uodbc_update_stats(environment->sh, UODBC_STATS_TYPE_HDBC,
+                       (void *)1);
+#endif
+
+    thread_release( SQL_HANDLE_ENV, environment );
+    return SQL_SUCCESS;
+    }
+
+
 SQLRETURN stmt_part(SQLSMALLINT handle_type,
            SQLHANDLE input_handle,
            SQLHANDLE *output_handle,
@@ -873,6 +1042,7 @@ SQLRETURN __SQLAllocHandle( SQLSMALLINT handle_type,
       case SQL_HANDLE_ENV:
       case SQL_HANDLE_SENV:
         {
+            initialize_proxy_manager();
             DMHENV environment;
             char pooling_string[ 128 ];
             char pool_max_size_string [ 128 ];
@@ -1028,250 +1198,14 @@ SQLRETURN __SQLAllocHandle( SQLSMALLINT handle_type,
 
       case SQL_HANDLE_DBC:
         {
-            DMHENV environment = (DMHENV) input_handle;
-            DMHDBC connection;
-
-            if ( !__validate_env( environment ))
-            {
-                dm_log_write( __FILE__, 
-                        __LINE__, 
-                        LOG_INFO, 
-                        LOG_INFO, 
-                        "Error: SQL_INVALID_HANDLE" );
-
-                return SQL_INVALID_HANDLE;
+            int user_ret;
+            printf("%d\n", pm -> size);
+            for (int i = 0; i < pm -> size; i++) {
+                int ret = conn_part(handle_type, input_handle, (SQLHANDLE *)pm -> conns[i], requested_version);
+                if (i == 0) user_ret = ret;
+                printf("Alloc DBC : %d\n", ret);
             }
-
-            if ( output_handle )
-                *output_handle = SQL_NULL_HDBC;
-
-            thread_protect( SQL_HANDLE_ENV, environment );
-
-            function_entry(( void * ) input_handle );
-
-            if ( log_info.log_flag )
-            { 
-                /*
-                 * log that we are here
-                 */
-
-                sprintf( environment -> msg, 
-                        "\n\t\tEntry:\n\t\t\tHandle Type = %d\n\t\t\tInput Handle = %p",
-                        handle_type,
-                        (void*)input_handle );
-
-                dm_log_write( __FILE__, 
-                        __LINE__, 
-                        LOG_INFO, 
-                        LOG_INFO, 
-                        environment -> msg );
-            }
-
-            if ( !output_handle )
-            {
-                dm_log_write( __FILE__, 
-                        __LINE__, 
-                        LOG_INFO, 
-                        LOG_INFO, 
-                        "Error: HY009" );
-
-                __post_internal_error( &environment -> error,
-                        ERROR_HY009, NULL, 
-                        SQL_OV_ODBC3 );
-
-                return function_return_nodrv( SQL_HANDLE_ENV, environment, SQL_ERROR );
-            }
-
-            /*
-             * check that a version has been requested
-             */
-
-            if ( environment -> requested_version == 0 )
-            {
-                dm_log_write( __FILE__, 
-                        __LINE__, 
-                        LOG_INFO, 
-                        LOG_INFO, 
-                        "Error: HY010" );
-
-                __post_internal_error( &environment -> error,
-                        ERROR_HY010, NULL,
-                        SQL_OV_ODBC3 );
-
-                *output_handle = SQL_NULL_HDBC;
-
-                return function_return_nodrv( SQL_HANDLE_ENV, environment, SQL_ERROR );
-            }
-
-            // loop for allocating hdbc
-            for (int i = 0; i <  pm -> size; i++) {
-                pm -> conns[i] = __alloc_dbc();
-                if ( !pm -> conns[i] )
-                {
-                    dm_log_write( __FILE__, 
-                            __LINE__, 
-                            LOG_INFO, 
-                            LOG_INFO, 
-                            "Error: HY013" );
-    
-                    __post_internal_error( &environment -> error,
-                        ERROR_HY013, NULL,
-                        environment -> requested_version );
-    
-                    *output_handle = SQL_NULL_HDBC;
-    
-                    return function_return_nodrv( SQL_HANDLE_ENV, environment, SQL_ERROR );
-                }
-    
-                /*
-                 * sort out the states
-                 */
-    
-                pm -> conns[i] -> state = STATE_C2;
-                if ( environment -> state == STATE_E1 )
-                {
-                    environment -> state = STATE_E2;
-                }
-                environment -> connection_count ++;
-                pm -> conns[i] -> environment = environment;
-    
-                pm -> conns[i] -> cursors = SQL_CUR_DEFAULT;
-                pm -> conns[i] -> login_timeout = SQL_LOGIN_TIMEOUT_DEFAULT;
-                pm -> conns[i] -> login_timeout_set = 0;
-                pm -> conns[i] -> auto_commit = SQL_AUTOCOMMIT_ON;
-                pm -> conns[i] -> auto_commit_set = 0;
-                pm -> conns[i] -> async_enable = 0;
-                pm -> conns[i] -> async_enable_set = 0;
-                pm -> conns[i] -> auto_ipd = 0;
-                pm -> conns[i] -> auto_ipd_set = 0;
-                pm -> conns[i] -> connection_timeout = 0;
-                pm -> conns[i] -> connection_timeout_set = 0;
-                pm -> conns[i] -> metadata_id = 0;
-                pm -> conns[i] -> metadata_id_set = 0;
-                pm -> conns[i] -> packet_size = 0;
-                pm -> conns[i] -> packet_size_set = 0;
-                pm -> conns[i] -> quite_mode = 0;
-                pm -> conns[i] -> quite_mode_set = 0;
-                pm -> conns[i] -> txn_isolation = 0;
-                pm -> conns[i] -> txn_isolation_set = 0;
-                strcpy( pm -> conns[i] -> cli_year, "1995" );
-    
-                pm -> conns[i] -> env_attribute.count = 0;
-                pm -> conns[i] -> env_attribute.list = NULL;
-                pm -> conns[i] -> dbc_attribute.count = 0;
-                pm -> conns[i] -> dbc_attribute.list = NULL;
-                pm -> conns[i] -> stmt_attribute.count = 0;
-                pm -> conns[i] -> stmt_attribute.list = NULL;
-                pm -> conns[i] -> save_attr = NULL;
-    
-    #ifdef HAVE_ICONV
-                pm -> conns[i] -> iconv_cd_uc_to_ascii = (iconv_t)-1;
-                pm -> conns[i] -> iconv_cd_ascii_to_uc = (iconv_t)-1;
-                strcpy( pm -> conns[i] -> unicode_string, DEFAULT_ICONV_ENCODING );
-    #endif
-    
-                *output_handle = (SQLHANDLE) pm -> conns[i];
-    
-                if ( log_info.log_flag )
-                {
-                    sprintf( environment -> msg, 
-                            "\n\t\tExit:[SQL_SUCCESS]\n\t\t\tOutput Handle = %p",
-                                pm -> conns[i] );
-    
-                    dm_log_write( __FILE__, 
-                            __LINE__, 
-                            LOG_INFO, 
-                            LOG_INFO, 
-                            environment -> msg );    
-            }
-        }
-
-            connection = __alloc_dbc();
-            if ( !connection )
-            {
-                dm_log_write( __FILE__, 
-                        __LINE__, 
-                        LOG_INFO, 
-                        LOG_INFO, 
-                        "Error: HY013" );
-
-                __post_internal_error( &environment -> error,
-                    ERROR_HY013, NULL,
-                    environment -> requested_version );
-
-                *output_handle = SQL_NULL_HDBC;
-
-                return function_return_nodrv( SQL_HANDLE_ENV, environment, SQL_ERROR );
-            }
-
-            /*
-             * sort out the states
-             */
-
-            connection -> state = STATE_C2;
-            if ( environment -> state == STATE_E1 )
-            {
-                environment -> state = STATE_E2;
-            }
-            environment -> connection_count ++;
-            connection -> environment = environment;
-
-            connection -> cursors = SQL_CUR_DEFAULT;
-            connection -> login_timeout = SQL_LOGIN_TIMEOUT_DEFAULT;
-            connection -> login_timeout_set = 0;
-            connection -> auto_commit = SQL_AUTOCOMMIT_ON;
-            connection -> auto_commit_set = 0;
-            connection -> async_enable = 0;
-            connection -> async_enable_set = 0;
-            connection -> auto_ipd = 0;
-            connection -> auto_ipd_set = 0;
-            connection -> connection_timeout = 0;
-            connection -> connection_timeout_set = 0;
-            connection -> metadata_id = 0;
-            connection -> metadata_id_set = 0;
-            connection -> packet_size = 0;
-            connection -> packet_size_set = 0;
-            connection -> quite_mode = 0;
-            connection -> quite_mode_set = 0;
-            connection -> txn_isolation = 0;
-            connection -> txn_isolation_set = 0;
-            strcpy( connection -> cli_year, "1995" );
-
-            connection -> env_attribute.count = 0;
-            connection -> env_attribute.list = NULL;
-            connection -> dbc_attribute.count = 0;
-            connection -> dbc_attribute.list = NULL;
-            connection -> stmt_attribute.count = 0;
-            connection -> stmt_attribute.list = NULL;
-            connection -> save_attr = NULL;
-
-#ifdef HAVE_ICONV
-            connection -> iconv_cd_uc_to_ascii = (iconv_t)-1;
-            connection -> iconv_cd_ascii_to_uc = (iconv_t)-1;
-            strcpy( connection -> unicode_string, DEFAULT_ICONV_ENCODING );
-#endif
-
-            *output_handle = (SQLHANDLE) connection;
-
-            if ( log_info.log_flag )
-            {
-                sprintf( environment -> msg, 
-                        "\n\t\tExit:[SQL_SUCCESS]\n\t\t\tOutput Handle = %p",
-                            connection );
-
-                dm_log_write( __FILE__, 
-                        __LINE__, 
-                        LOG_INFO, 
-                        LOG_INFO, 
-                        environment -> msg );
-            }
-#if defined ( COLLECT_STATS ) && defined( HAVE_SYS_SEM_H )
-            uodbc_update_stats(environment->sh, UODBC_STATS_TYPE_HDBC,
-                               (void *)1);
-#endif
-
-            thread_release( SQL_HANDLE_ENV, environment );
-            return SQL_SUCCESS;
+            return user_ret;
         }
         break;
 

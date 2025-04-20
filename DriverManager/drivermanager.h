@@ -1818,6 +1818,8 @@ int add_to_pool( DMHDBC connection, CPOOLHEAD *pooh );
                                     con->functions[78].func)\
                                         (typ,han)
 
+void initialize_proxy_manager();
+                                  
 typedef struct ProxyManager
 {
   DMHDBC* conns; // 连接句柄数组
